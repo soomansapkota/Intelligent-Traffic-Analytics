@@ -1,0 +1,23 @@
+# Environment / secrets
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Data (never commit raw dumps, static GTFS downloads, or the local DB)
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/sample/
+data/static_gtfs/*
+!data/static_gtfs/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
