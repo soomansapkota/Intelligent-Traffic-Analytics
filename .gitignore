@@ -2,19 +2,14 @@
 .env
 
 # Python
-venv/
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# Data (never commit raw dumps, static GTFS downloads, or the local DB)
-data/raw/*
-!data/raw/.gitkeep
-!data/raw/sample/
-data/static_gtfs/*
-!data/static_gtfs/.gitkeep
-data/processed/*
-!data/processed/.gitkeep
+# Data (never commit the local database or other generated data)
+data/*
+!data/.gitkeep
 
 # Notebooks checkpoints
 .ipynb_checkpoints/
