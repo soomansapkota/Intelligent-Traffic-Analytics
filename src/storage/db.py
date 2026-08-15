@@ -72,6 +72,38 @@ def init_db(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (entity_id, route_id)
         )
     """)
+
+    # Indices for the queries analytics code will actually run: "give me
+    # everything for this trip/route/vehicle" and "give me the latest cycle".
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_updates_trip ON trip_updates (trip_id, fetched_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_updates_route ON trip_updates (route_id, fetched_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_vehicle ON vehicle_positions (vehicle_id, fetched_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_route ON vehicle_positions (route_id, fetched_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_route ON alerts (route_id)")
+
+    conn.commit()
+
+
+def write_static_gtfs(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame]) -> None:
+    """Replace the static schedule tables (routes/trips/stops/stop_times).
+
+    Unlike the realtime writers, this replaces rather than appends: the
+    static schedule is a full snapshot, not a stream of new events, and
+    each refresh should fully supersede the previous one.
+
+    Args:
+        conn: Open SQLite connection.
+        tables: Dict from decode_static_gtfs, keyed by table name.
+
+    Returns:
+        None.
+    """
+    for name, df in tables.items():
+        df.to_sql(name, conn, if_exists="replace", index=False)
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_route ON trips (route_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_stop_times_trip ON stop_times (trip_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_stop_times_stop ON stop_times (stop_id)")
     conn.commit()
 
 

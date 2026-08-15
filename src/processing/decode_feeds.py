@@ -1,5 +1,10 @@
+import io
+import zipfile
+
 import pandas as pd
 from google.transit import gtfs_realtime_pb2
+
+from config.settings import METRO_AGENCY_ID
 
 
 def decode_trip_updates(raw_bytes: bytes) -> pd.DataFrame:
@@ -97,3 +102,46 @@ def decode_alerts(raw_bytes: bytes) -> pd.DataFrame:
             })
 
     return pd.DataFrame(rows)
+
+
+def decode_static_gtfs(raw_bytes: bytes) -> dict[str, pd.DataFrame]:
+    """Filter the combined NSW static GTFS zip down to Sydney Metro.
+
+    stop_times.txt covers all of NSW and is too large to load in one shot,
+    so it's streamed in chunks and filtered to metro trip_ids as it goes.
+
+    Args:
+        raw_bytes: Raw bytes of the static GTFS zip file (from fetch_static_gtfs).
+
+    Returns:
+        Dict with keys "routes", "trips", "stop_times", "stops", each mapping
+        to a DataFrame filtered to Sydney Metro (agency_id == METRO_AGENCY_ID).
+    """
+    with zipfile.ZipFile(io.BytesIO(raw_bytes)) as static_zip:
+        with static_zip.open("routes.txt") as f:
+            routes_df = pd.read_csv(f, dtype=str)
+        metro_routes_df = routes_df[routes_df.agency_id == METRO_AGENCY_ID]
+
+        with static_zip.open("trips.txt") as f:
+            trips_df = pd.read_csv(f, dtype=str)
+        metro_trips_df = trips_df[trips_df.route_id.isin(metro_routes_df.route_id)]
+
+        metro_trip_ids = set(metro_trips_df.trip_id)
+        chunks = []
+        with static_zip.open("stop_times.txt") as f:
+            for chunk in pd.read_csv(f, dtype=str, chunksize=200_000):
+                matched = chunk[chunk.trip_id.isin(metro_trip_ids)]
+                if not matched.empty:
+                    chunks.append(matched)
+        metro_stop_times_df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+
+        with static_zip.open("stops.txt") as f:
+            stops_df = pd.read_csv(f, dtype=str)
+        metro_stops_df = stops_df[stops_df.stop_id.isin(metro_stop_times_df.stop_id)]
+
+    return {
+        "routes": metro_routes_df,
+        "trips": metro_trips_df,
+        "stop_times": metro_stop_times_df,
+        "stops": metro_stops_df,
+    }
