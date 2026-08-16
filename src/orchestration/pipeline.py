@@ -8,9 +8,21 @@ from src.storage.db import get_connection, init_db, write_alerts, write_static_g
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# Each feed is (name, fetch_fn, decode_fn, write_fn). Kept as a table so
+# run_once can loop over it and one feed's failure doesn't block the others.
+_FEEDS = [
+    ("trip_updates", fetch_trip_updates, decode_trip_updates, write_trip_updates),
+    ("vehicle_positions", fetch_vehicle_positions, decode_vehicle_positions, write_vehicle_positions),
+    ("alerts", fetch_alerts, decode_alerts, write_alerts),
+]
+
 
 def run_once() -> None:
     """Fetch, decode, and store all three feeds once.
+
+    Each feed is handled independently: if one fails (e.g. the API returns
+    a transient error), the others still run instead of the whole cycle
+    aborting.
 
     Args:
         None.
@@ -21,17 +33,13 @@ def run_once() -> None:
     conn = get_connection()
     init_db(conn)
 
-    trip_updates_df = decode_trip_updates(fetch_trip_updates())
-    write_trip_updates(conn, trip_updates_df)
-    logger.info(f"trip_updates: wrote {len(trip_updates_df)} rows")
-
-    vehicle_positions_df = decode_vehicle_positions(fetch_vehicle_positions())
-    write_vehicle_positions(conn, vehicle_positions_df)
-    logger.info(f"vehicle_positions: wrote {len(vehicle_positions_df)} rows")
-
-    alerts_df = decode_alerts(fetch_alerts())
-    write_alerts(conn, alerts_df)
-    logger.info(f"alerts: wrote {len(alerts_df)} rows")
+    for name, fetch_fn, decode_fn, write_fn in _FEEDS:
+        try:
+            df = decode_fn(fetch_fn())
+            write_fn(conn, df)
+            logger.info(f"{name}: wrote {len(df)} rows")
+        except Exception:
+            logger.exception(f"{name}: cycle failed, skipping")
 
     conn.close()
     logger.info("pipeline cycle done")
