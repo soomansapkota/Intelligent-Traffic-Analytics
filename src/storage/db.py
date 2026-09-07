@@ -137,6 +137,19 @@ def write_vehicle_positions(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
     df.to_sql("vehicle_positions", conn, if_exists="append", index=False)
 
 
+def read_table(conn: sqlite3.Connection, table: str) -> pd.DataFrame:
+    """Load a whole table into a DataFrame.
+
+    Args:
+        conn: Open SQLite connection.
+        table: Table name to read.
+
+    Returns:
+        DataFrame holding every row of the table.
+    """
+    return pd.read_sql(f"SELECT * FROM {table}", conn)
+
+
 def write_alerts(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
     """Insert or update alert rows, keyed by entity_id and route_id.
 
