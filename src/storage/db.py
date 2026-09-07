@@ -137,6 +137,25 @@ def write_vehicle_positions(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
     df.to_sql("vehicle_positions", conn, if_exists="append", index=False)
 
 
+def read_table(conn: sqlite3.Connection, table: str) -> pd.DataFrame:
+    """Load a whole table into a DataFrame.
+
+    Args:
+        conn: Open SQLite connection.
+        table: Table name to read.
+
+    Returns:
+        DataFrame holding every row of the table.
+
+    Raises:
+        ValueError: If the table name is not a plain identifier.
+    """
+    # A table name cannot be passed as a query parameter, so it is checked and quoted instead.
+    if not table.isidentifier():
+        raise ValueError(f"Invalid table name: {table!r}")
+    return pd.read_sql(f'SELECT * FROM "{table}"', conn)
+
+
 def write_alerts(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
     """Insert or update alert rows, keyed by entity_id and route_id.
 

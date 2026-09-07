@@ -1,8 +1,11 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+load_dotenv(PROJECT_ROOT / ".env")
 
 API_KEY = os.environ["TFNSW_API_KEY"]
 HEADERS = {"Authorization": f"apikey {API_KEY}"}
@@ -16,7 +19,7 @@ ALERTS_URL = "https://api.transport.nsw.gov.au/v2/gtfs/alerts/metro"
 STATIC_GTFS_URL = "https://api.transport.nsw.gov.au/v1/publictransport/timetables/complete/gtfs"
 METRO_AGENCY_ID = "SMNW"
 
-DB_PATH = "data/traffic.db"
+DB_PATH = PROJECT_ROOT / "data/traffic.db"
 
 # Retry behaviour for feed requests: up to MAX_RETRIES attempts, sleeping
 # RETRY_BACKOFF_SECONDS * 2**attempt between them.
