@@ -146,8 +146,14 @@ def read_table(conn: sqlite3.Connection, table: str) -> pd.DataFrame:
 
     Returns:
         DataFrame holding every row of the table.
+
+    Raises:
+        ValueError: If the table name is not a plain identifier.
     """
-    return pd.read_sql(f"SELECT * FROM {table}", conn)
+    # A table name cannot be passed as a query parameter, so it is checked and quoted instead.
+    if not table.isidentifier():
+        raise ValueError(f"Invalid table name: {table!r}")
+    return pd.read_sql(f'SELECT * FROM "{table}"', conn)
 
 
 def write_alerts(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
