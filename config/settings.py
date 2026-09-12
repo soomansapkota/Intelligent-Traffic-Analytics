@@ -25,3 +25,9 @@ DB_PATH = PROJECT_ROOT / "data/traffic.db"
 # RETRY_BACKOFF_SECONDS * 2**attempt between them.
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", 3))
 RETRY_BACKOFF_SECONDS = float(os.environ.get("RETRY_BACKOFF_SECONDS", 2))
+
+# Kafka broker used by src/streaming: the producer publishes decoded feed rows
+# to topics under KAFKA_TOPIC_PREFIX, and the stream processor consumes them.
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_TOPIC_PREFIX = os.environ.get("KAFKA_TOPIC_PREFIX", "traffic")
+KAFKA_CONSUMER_GROUP = os.environ.get("KAFKA_CONSUMER_GROUP", "traffic-stream-processor")
