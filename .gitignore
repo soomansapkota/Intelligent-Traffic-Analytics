@@ -16,3 +16,6 @@ data/*
 
 # OS
 .DS_Store
+
+# Hourly DB-pull script log
+scripts/pull_log.txt
