@@ -4,7 +4,7 @@ import pandas as pd
 
 
 def active_alerts_by_route(conn: sqlite3.Connection) -> pd.DataFrame:
-    """List the current alerts table joined against route names.
+    """List the current alerts table joined against route names.....
 
     The alerts table is already deduplicated by (entity_id, route_id) via
     upsert, so this is a straight join, not an aggregation.
