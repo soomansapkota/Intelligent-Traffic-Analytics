@@ -191,61 +191,44 @@ def get_predicted_delays(route_id: Optional[str] = None, horizon_minutes: int = 
     try:
         if horizon_minutes not in (5, 10, 15):
             horizon_minutes = 5
-        
-        target_col = f"target_delay_{horizon_minutes}min"
-        
-        if route_id:
-            query = f"""
-            SELECT
-                trip_id,
-                route_id,
-                window_start,
-                arrival_delay as current_delay,
-                {target_col} as predicted_delay,
-                stop_id,
-                stop_sequence
-            FROM model_dataset
-            WHERE route_id = '{route_id}'
-              AND {target_col} IS NOT NULL
-            ORDER BY window_start DESC
-            LIMIT 50
-            """
-        else:
-            query = f"""
-            SELECT
-                trip_id,
-                route_id,
-                window_start,
-                arrival_delay as current_delay,
-                {target_col} as predicted_delay,
-                stop_id,
-                stop_sequence
-            FROM model_dataset
-            WHERE {target_col} IS NOT NULL
-            ORDER BY window_start DESC
-            LIMIT 100
-            """
-        
+
+        prediction_col = f"predicted_delay_{horizon_minutes}min"
+        query = f"""
+        SELECT
+            trip_id,
+            route_id,
+            window_start,
+            arrival_delay as current_delay,
+            {prediction_col} as predicted_delay,
+            stop_id,
+            stop_sequence,
+            predicted_at
+        FROM predictions
+        WHERE (:route_id IS NULL OR route_id = :route_id)
+        ORDER BY window_start DESC
+        """
+
         with engine.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-        
+            rows = conn.execute(text(query), {"route_id": route_id}).fetchall()
+
+        to_minutes = lambda secs: round(float(secs) / 60, 2) if secs is not None else None
         delays = []
         for row in rows:
             delays.append({
                 "trip_id": row[0],
                 "route_id": row[1],
                 "window_start": row[2].isoformat() if row[2] else None,
-                "current_delay_minutes": float(row[3]) if row[3] else None,
-                "predicted_delay_minutes": float(row[4]) if row[4] else None,
+                "current_delay_minutes": to_minutes(row[3]),
+                "predicted_delay_minutes": to_minutes(row[4]),
                 "stop_id": row[5],
                 "stop_sequence": row[6]
             })
-        
+
         return {
             "horizon_minutes": horizon_minutes,
             "delays": delays,
             "count": len(delays),
+            "predicted_at": rows[0][7].isoformat() if rows else None,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
@@ -299,7 +282,7 @@ def get_trip_details(trip_id: str):
         Trip details including all stops, predicted delays at each horizon.
     """
     try:
-        query = f"""
+        query = """
         SELECT
             trip_id,
             route_id,
@@ -310,41 +293,39 @@ def get_trip_details(trip_id: str):
             stop_id,
             stop_name,
             stop_sequence,
-            target_delay_5min,
-            target_delay_10min,
-            target_delay_15min
-        FROM model_dataset
-        WHERE trip_id = '{trip_id}'
-        ORDER BY window_start DESC
-        LIMIT 1
+            predicted_delay_5min,
+            predicted_delay_10min,
+            predicted_delay_15min
+        FROM predictions
+        WHERE trip_id = :trip_id
         """
-        
+
         with engine.connect() as conn:
-            result = conn.execute(text(query))
-            row = result.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Trip not found")
-        
-        return {
-            "trip_id": row[0],
-            "route_id": row[1],
-            "destination": row[2],
-            "service_date": row[3],
-            "observed_time": row[4].isoformat() if row[4] else None,
-            "current_delay_minutes": float(row[5]) if row[5] else None,
-            "current_stop_id": row[6],
-            "current_stop_name": row[7],
-            "stop_sequence": row[8],
-            "predicted_delays": {
-                "5_minutes": float(row[9]) if row[9] else None,
-                "10_minutes": float(row[10]) if row[10] else None,
-                "15_minutes": float(row[11]) if row[11] else None
-            },
-            "timestamp": datetime.now().isoformat()
-        }
+            row = conn.execute(text(query), {"trip_id": trip_id}).fetchone()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Trip not found among the trains running now")
+
+    to_minutes = lambda secs: round(float(secs) / 60, 2) if secs is not None else None
+    return {
+        "trip_id": row[0],
+        "route_id": row[1],
+        "destination": row[2],
+        "service_date": row[3],
+        "observed_time": row[4].isoformat() if row[4] else None,
+        "current_delay_minutes": to_minutes(row[5]),
+        "current_stop_id": row[6],
+        "current_stop_name": row[7],
+        "stop_sequence": row[8],
+        "predicted_delays": {
+            "5_minutes": to_minutes(row[9]),
+            "10_minutes": to_minutes(row[10]),
+            "15_minutes": to_minutes(row[11])
+        },
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.on_event("shutdown")

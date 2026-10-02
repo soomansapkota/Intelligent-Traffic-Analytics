@@ -7,7 +7,7 @@ from src.orchestration.pipeline import run_once
 logger = logging.getLogger(__name__)
 
 
-def run_forever(interval_seconds: int = 30, publish: bool = False, duration_minutes: float | None = None) -> None:
+def run_forever(interval_seconds: int = 30, publish: bool = False, duration_minutes: float | None = None, predict: bool = False) -> None:
     """Run the pipeline again and again, waiting between each run.
 
     Args:
@@ -16,18 +16,19 @@ def run_forever(interval_seconds: int = 30, publish: bool = False, duration_minu
         publish: Also publish each cycle's rows to the Kafka broker.
         duration_minutes: Stop after roughly this long, or run until
             interrupted when left as None. One cycle always runs.
+        predict: Also predict live delays from the saved models each cycle.
 
     Returns:
         None.
     """
     interval_seconds = max(interval_seconds, 15)
     deadline = time.monotonic() + duration_minutes * 60 if duration_minutes is not None else None
-    logger.info(f"starting scheduler, interval={interval_seconds}s publish={publish} duration={duration_minutes}")
+    logger.info(f"starting scheduler, interval={interval_seconds}s publish={publish} predict={predict} duration={duration_minutes}")
 
     cycles = 0
     try:
         while True:
-            run_once(publish=publish)
+            run_once(publish=publish, predict=predict)
             cycles += 1
             if deadline is not None and time.monotonic() >= deadline:
                 break
@@ -43,5 +44,6 @@ if __name__ == "__main__":
     parser.add_argument("--interval", type=int, default=30, help="Seconds between polls, minimum 15")
     parser.add_argument("--minutes", type=float, default=None, help="Stop after this many minutes instead of running until interrupted")
     parser.add_argument("--publish", action="store_true", help="Also publish each cycle's rows to the Kafka broker")
+    parser.add_argument("--predict", action="store_true", help="Also predict live delays from the saved models each cycle")
     args = parser.parse_args()
-    run_forever(interval_seconds=args.interval, publish=args.publish, duration_minutes=args.minutes)
+    run_forever(interval_seconds=args.interval, publish=args.publish, duration_minutes=args.minutes, predict=args.predict)
