@@ -1,7 +1,7 @@
 package com.traffic.analytics.api;
 
-import com.squareup.okhttp3.OkHttpClient;
-import com.squareup.okhttp3.logging.HttpLoggingInterceptor;
+import okhttp3.OkHttpClient;
+import okhttp3.logging.HttpLoggingInterceptor;
 
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
@@ -11,7 +11,7 @@ import retrofit2.converter.gson.GsonConverterFactory;
  */
 public class ApiClient {
     private static TrafficApiService instance = null;
-    private static String BASE_URL = "http://0.0.0.0:8000"; // Change to your server IP
+    private static String BASE_URL = "http://192.168.0.120:8000"; // Android emulator -> host localhost. Physical device: use your PC's LAN IP, e.g. http://192.168.0.120:8000
 
     public static TrafficApiService getInstance() {
         if (instance == null) {

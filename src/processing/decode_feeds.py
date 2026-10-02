@@ -90,7 +90,8 @@ def decode_alerts(raw_bytes: bytes) -> pd.DataFrame:
         a = entity.alert
         header = a.header_text.translation[0].text if a.header_text.translation else None
         description = a.description_text.translation[0].text if a.description_text.translation else None
-        route_ids = [ie.route_id for ie in a.informed_entity if ie.route_id] or [None]
+        # One alert lists an informed entity per affected stop and trip, so the same route repeats many times over.
+        route_ids = list(dict.fromkeys(ie.route_id for ie in a.informed_entity if ie.route_id)) or [None]
         for route_id in route_ids:
             rows.append({
                 "entity_id": entity.id,
@@ -114,10 +115,14 @@ def decode_static_gtfs(raw_bytes: bytes) -> dict[str, pd.DataFrame]:
         raw_bytes: Raw bytes of the static GTFS zip file (from fetch_static_gtfs).
 
     Returns:
-        Dict with keys "routes", "trips", "stop_times", "stops", each mapping
-        to a DataFrame filtered to Sydney Metro (agency_id == METRO_AGENCY_ID).
+        Dict with keys "routes", "trips", "stop_times", "stops", "calendar" and
+        "calendar_dates", each mapping to a DataFrame filtered to Sydney Metro
+        (agency_id == METRO_AGENCY_ID). The two calendar tables say which
+        service_id runs on which dates, and are empty if the zip lacks them.
     """
     with zipfile.ZipFile(io.BytesIO(raw_bytes)) as static_zip:
+        names = set(static_zip.namelist())
+
         with static_zip.open("routes.txt") as f:
             routes_df = pd.read_csv(f, dtype=str)
         metro_routes_df = routes_df[routes_df.agency_id == METRO_AGENCY_ID]
@@ -139,9 +144,24 @@ def decode_static_gtfs(raw_bytes: bytes) -> dict[str, pd.DataFrame]:
             stops_df = pd.read_csv(f, dtype=str)
         metro_stops_df = stops_df[stops_df.stop_id.isin(metro_stop_times_df.stop_id)]
 
+        metro_service_ids = set(metro_trips_df.service_id)
+        calendar_df = pd.DataFrame()
+        if "calendar.txt" in names:
+            with static_zip.open("calendar.txt") as f:
+                calendar_df = pd.read_csv(f, dtype=str)
+            calendar_df = calendar_df[calendar_df.service_id.isin(metro_service_ids)]
+
+        calendar_dates_df = pd.DataFrame()
+        if "calendar_dates.txt" in names:
+            with static_zip.open("calendar_dates.txt") as f:
+                calendar_dates_df = pd.read_csv(f, dtype=str)
+            calendar_dates_df = calendar_dates_df[calendar_dates_df.service_id.isin(metro_service_ids)]
+
     return {
         "routes": metro_routes_df,
         "trips": metro_trips_df,
         "stop_times": metro_stop_times_df,
         "stops": metro_stops_df,
+        "calendar": calendar_df,
+        "calendar_dates": calendar_dates_df,
     }

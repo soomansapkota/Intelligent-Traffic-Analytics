@@ -1,8 +1,10 @@
 package com.traffic.analytics.ui;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.widget.Button;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -41,6 +43,15 @@ public class MainActivity extends AppCompatActivity {
         alertsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         alertAdapter = new AlertAdapter();
         alertsRecyclerView.setAdapter(alertAdapter);
+
+        Button buttonAlerts = findViewById(R.id.buttonAlerts);
+        Button buttonDelays = findViewById(R.id.buttonDelays);
+        Button buttonVehicles = findViewById(R.id.buttonVehicles);
+        buttonAlerts.setOnClickListener(v -> loadAlerts());
+        buttonDelays.setOnClickListener(v ->
+                startActivity(new Intent(MainActivity.this, DelayPredictionActivity.class)));
+        buttonVehicles.setOnClickListener(v ->
+                startActivity(new Intent(MainActivity.this, VehicleTrackingActivity.class)));
 
         // Swipe to refresh
         swipeRefresh.setOnRefreshListener(() -> {

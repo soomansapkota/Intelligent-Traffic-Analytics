@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple train / metro glyph -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,30 h40 a10,10 0 0 1 10,10 v34 a10,10 0 0 1 -10,10 h-40 a10,10 0 0 1 -10,-10 v-34 a10,10 0 0 1 10,-10 z" />
+    <path
+        android:fillColor="#0072CE"
+        android:pathData="M32,42 h44 v20 h-44 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,80 l-6,10 h8 l4,-10 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,80 l6,10 h-8 l-4,-10 z" />
+    <path
+        android:fillColor="#0072CE"
+        android:pathData="M42,68 a4,4 0 1 1 0.1,0 z" />
+    <path
+        android:fillColor="#0072CE"
+        android:pathData="M66,68 a4,4 0 1 1 0.1,0 z" />
+</vector>

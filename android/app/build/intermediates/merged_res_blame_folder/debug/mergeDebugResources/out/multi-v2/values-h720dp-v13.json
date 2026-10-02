@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.traffic.analytics.app-mergeDebugResources-35:/values-h720dp-v13/values-h720dp-v13.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\acer\\.gradle\\caches\\9.2.0\\transforms\\f32f3cc0c3476f1b578cae2b7fa168bd\\workspace\\transformed\\appcompat-1.6.1\\res\\values-h720dp-v13\\values-h720dp-v13.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "66",
+                        "endOffsets": "117"
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,26 @@
+[
+    {
+        "merged": "com.traffic.analytics.app-mergeDebugResources-36:/layout/item_vehicle.xml",
+        "source": "com.traffic.analytics.app-main-39:/layout/item_vehicle.xml"
+    },
+    {
+        "merged": "com.traffic.analytics.app-mergeDebugResources-36:/layout/item_delay.xml",
+        "source": "com.traffic.analytics.app-main-39:/layout/item_delay.xml"
+    },
+    {
+        "merged": "com.traffic.analytics.app-mergeDebugResources-36:/layout/activity_main.xml",
+        "source": "com.traffic.analytics.app-main-39:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.traffic.analytics.app-mergeDebugResources-36:/layout/activity_vehicle_tracking.xml",
+        "source": "com.traffic.analytics.app-main-39:/layout/activity_vehicle_tracking.xml"
+    },
+    {
+        "merged": "com.traffic.analytics.app-mergeDebugResources-36:/layout/item_alert.xml",
+        "source": "com.traffic.analytics.app-main-39:/layout/item_alert.xml"
+    },
+    {
+        "merged": "com.traffic.analytics.app-mergeDebugResources-36:/layout/activity_delay_prediction.xml",
+        "source": "com.traffic.analytics.app-main-39:/layout/activity_delay_prediction.xml"
+    }
+]
