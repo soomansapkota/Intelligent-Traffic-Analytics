@@ -1,13 +1,13 @@
 import argparse
 import logging
-import sqlite3
 from typing import Any
 
 import pandas as pd
+from sqlalchemy import Engine, text
 
 from src.processing.windowing import build_windows, current_trip_delay
-from src.storage.db import get_connection, init_db, write_alerts, write_trip_updates, write_vehicle_positions
-from src.streaming.kafka_client import consume_feeds, get_consumer
+from src.storage.db import get_engine, init_db, write_alerts, write_trip_updates, write_vehicle_positions
+from src.streaming.kafka import connect_consumer, consume_forever, subscribe_feeds
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +37,17 @@ class StreamProcessor:
     written, so a malformed message cannot poison the tables downstream.
     """
 
-    def __init__(self, conn: sqlite3.Connection, batch_size: int = 500) -> None:
+    def __init__(self, engine: Engine, batch_size: int = 500) -> None:
         """Set up empty buffers for every known feed.
 
         Args:
-            conn: Open SQLite connection that already has the tables.
+            engine: SQLAlchemy engine for a database that already has the tables.
             batch_size: Rows to buffer per feed before writing.
 
         Returns:
             None.
         """
-        self.conn = conn
+        self.engine = engine
         self.batch_size = batch_size
         self.buffers: dict[str, list[dict[str, Any]]] = {feed: [] for feed in REQUIRED_COLUMNS}
         self.rejected: dict[str, int] = {feed: 0 for feed in REQUIRED_COLUMNS}
@@ -96,7 +96,7 @@ class StreamProcessor:
             rows = self.buffers[name]
             if not rows:
                 continue
-            WRITERS[name](self.conn, pd.DataFrame(rows))
+            WRITERS[name](self.engine, pd.DataFrame(rows))
             self.written[name] += len(rows)
             self.buffers[name] = []
 
@@ -110,8 +110,8 @@ class StreamProcessor:
             Output of build_windows for that period, or an empty frame.
         """
         since = (pd.Timestamp.now(tz="UTC") - pd.Timedelta(minutes=minutes)).isoformat()
-        trip_updates = pd.read_sql("SELECT * FROM trip_updates WHERE fetched_at >= ?", self.conn, params=(since,))
-        vehicles = pd.read_sql("SELECT * FROM vehicle_positions WHERE fetched_at >= ?", self.conn, params=(since,))
+        trip_updates = pd.read_sql(text("SELECT * FROM trip_updates WHERE fetched_at >= :since"), self.engine, params={"since": since})
+        vehicles = pd.read_sql(text("SELECT * FROM vehicle_positions WHERE fetched_at >= :since"), self.engine, params={"since": since})
         delays = current_trip_delay(trip_updates)
         if delays.empty:
             return pd.DataFrame()
@@ -119,7 +119,7 @@ class StreamProcessor:
 
 
 def run(batch_size: int = 500) -> None:
-    """Subscribe to the Kafka broker and store records until interrupted.
+    """Subscribe to the broker and store records until interrupted.
 
     Args:
         batch_size: Rows to buffer per feed before writing.
@@ -127,25 +127,24 @@ def run(batch_size: int = 500) -> None:
     Returns:
         None.
     """
-    conn = get_connection()
-    init_db(conn)
-    processor = StreamProcessor(conn, batch_size=batch_size)
+    engine = get_engine()
+    init_db(engine)
+    processor = StreamProcessor(engine, batch_size=batch_size)
 
-    consumer = get_consumer()
+    consumer = connect_consumer()
+    subscribe_feeds(consumer)
     logger.info("stream processor listening")
     try:
-        consume_feeds(consumer, processor.handle)
-    except KeyboardInterrupt:
-        logger.info("stream processor stopping")
+        # Blocks polling until interrupted; consume_forever closes the consumer itself.
+        consume_forever(consumer, processor.handle)
     finally:
         processor.flush()
         logger.info(f"written {processor.written} rejected {processor.rejected}")
-        consumer.close()
-        conn.close()
+        engine.dispose()
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    parser = argparse.ArgumentParser(description="Consume feed records from the MQTT broker into the database")
+    parser = argparse.ArgumentParser(description="Consume feed records from the Kafka broker into the database")
     parser.add_argument("--batch-size", type=int, default=500, help="Rows to buffer per feed before writing")
     run(batch_size=parser.parse_args().batch_size)
