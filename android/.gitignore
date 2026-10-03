@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Build output and caches inside the app module
+app/build/
+app/.gradle/
