@@ -1,5 +1,12 @@
 gtfs-realtime-bindings==2.2.0
-kafka-python==2.0.2
 pandas==3.0.5
 python-dotenv==1.2.2
 requests==2.34.2
+confluent-kafka==2.15.1
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.10
+scikit-learn==1.5.2
+joblib==1.4.2
+fastapi==0.109.0
+uvicorn==0.27.0
+pytest==9.1.1

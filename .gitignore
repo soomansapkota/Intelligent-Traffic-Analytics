@@ -11,11 +11,12 @@ __pycache__/
 data/*
 !data/.gitkeep
 
+# Trained models and metrics (regenerate with `python -m src.modeling.train`)
+models/*
+!models/.gitkeep
+
 # Notebooks checkpoints
 .ipynb_checkpoints/
 
 # OS
 .DS_Store
-
-# Hourly DB-pull script log
-scripts/pull_log.txt

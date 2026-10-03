@@ -1,90 +1,93 @@
-import sqlite3
 from datetime import datetime, timezone
 
 import pandas as pd
+from sqlalchemy import Engine, create_engine, inspect, text
 
-from config.settings import DB_PATH
+from config.settings import DATABASE_URL
 
 
-def get_connection() -> sqlite3.Connection:
-    """Open a connection to the local SQLite database.
+def get_engine(database_url: str = DATABASE_URL) -> Engine:
+    """Create a SQLAlchemy engine for the configured database.
+
+    Points at Postgres by default (via DATABASE_URL / POSTGRES_* settings);
+    tests pass an explicit sqlite:// URL instead so they run without a
+    Postgres server.
 
     Args:
-        None.
+        database_url: SQLAlchemy connection URL.
 
     Returns:
-        An open SQLite connection.
+        An Engine. Callers should dispose() it when done.
     """
-    return sqlite3.connect(DB_PATH)
+    return create_engine(database_url)
 
 
-def init_db(conn: sqlite3.Connection) -> None:
+def init_db(engine: Engine) -> None:
     """Create the tables if they do not already exist.
 
     Args:
-        conn: Open SQLite connection.
+        engine: SQLAlchemy engine.
 
     Returns:
         None.
     """
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS trip_updates (
-            entity_id TEXT,
-            trip_id TEXT,
-            route_id TEXT,
-            start_date TEXT,
-            stop_sequence INTEGER,
-            stop_id TEXT,
-            arrival_time INTEGER,
-            arrival_delay INTEGER,
-            departure_time INTEGER,
-            schedule_relationship TEXT,
-            fetched_at TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS vehicle_positions (
-            entity_id TEXT,
-            trip_id TEXT,
-            route_id TEXT,
-            vehicle_id TEXT,
-            vehicle_label TEXT,
-            lat REAL,
-            lon REAL,
-            bearing REAL,
-            speed REAL,
-            current_stop_sequence INTEGER,
-            current_status TEXT,
-            timestamp INTEGER,
-            occupancy_status TEXT,
-            fetched_at TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS alerts (
-            entity_id TEXT,
-            cause TEXT,
-            effect TEXT,
-            header_text TEXT,
-            description_text TEXT,
-            route_id TEXT,
-            fetched_at TEXT,
-            PRIMARY KEY (entity_id, route_id)
-        )
-    """)
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS trip_updates (
+                entity_id TEXT,
+                trip_id TEXT,
+                route_id TEXT,
+                start_date TEXT,
+                stop_sequence INTEGER,
+                stop_id TEXT,
+                arrival_time INTEGER,
+                arrival_delay INTEGER,
+                departure_time INTEGER,
+                schedule_relationship TEXT,
+                fetched_at TEXT
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS vehicle_positions (
+                entity_id TEXT,
+                trip_id TEXT,
+                route_id TEXT,
+                vehicle_id TEXT,
+                vehicle_label TEXT,
+                lat REAL,
+                lon REAL,
+                bearing REAL,
+                speed REAL,
+                current_stop_sequence INTEGER,
+                current_status TEXT,
+                timestamp INTEGER,
+                occupancy_status TEXT,
+                fetched_at TEXT
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                entity_id TEXT,
+                cause TEXT,
+                effect TEXT,
+                header_text TEXT,
+                description_text TEXT,
+                route_id TEXT,
+                fetched_at TEXT,
+                PRIMARY KEY (entity_id, route_id)
+            )
+        """))
 
-    # Indices for the queries analytics code will actually run: "give me
-    # everything for this trip/route/vehicle" and "give me the latest cycle".
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_updates_trip ON trip_updates (trip_id, fetched_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_updates_route ON trip_updates (route_id, fetched_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_vehicle ON vehicle_positions (vehicle_id, fetched_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_route ON vehicle_positions (route_id, fetched_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_route ON alerts (route_id)")
-
-    conn.commit()
+        # Indices for the queries analytics code will actually run: "give me
+        # everything for this trip/route/vehicle" and "give me the latest cycle".
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trip_updates_trip ON trip_updates (trip_id, fetched_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trip_updates_route ON trip_updates (route_id, fetched_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_vehicle ON vehicle_positions (vehicle_id, fetched_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_route ON vehicle_positions (route_id, fetched_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_route ON alerts (route_id)"))
 
 
-def write_static_gtfs(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame]) -> None:
+def write_static_gtfs(engine: Engine, tables: dict[str, pd.DataFrame]) -> None:
     """Replace the static schedule tables (routes/trips/stops/stop_times).
 
     Unlike the realtime writers, this replaces rather than appends: the
@@ -92,26 +95,26 @@ def write_static_gtfs(conn: sqlite3.Connection, tables: dict[str, pd.DataFrame])
     each refresh should fully supersede the previous one.
 
     Args:
-        conn: Open SQLite connection.
+        engine: SQLAlchemy engine.
         tables: Dict from decode_static_gtfs, keyed by table name.
 
     Returns:
         None.
     """
     for name, df in tables.items():
-        df.to_sql(name, conn, if_exists="replace", index=False)
+        df.to_sql(name, engine, if_exists="replace", index=False)
 
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_route ON trips (route_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_stop_times_trip ON stop_times (trip_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_stop_times_stop ON stop_times (stop_id)")
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trips_route ON trips (route_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_stop_times_trip ON stop_times (trip_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_stop_times_stop ON stop_times (stop_id)"))
 
 
-def write_trip_updates(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
+def write_trip_updates(engine: Engine, df: pd.DataFrame) -> None:
     """Append trip update rows to the database.
 
     Args:
-        conn: Open SQLite connection.
+        engine: SQLAlchemy engine.
         df: DataFrame from decode_trip_updates.
 
     Returns:
@@ -119,14 +122,14 @@ def write_trip_updates(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
     """
     df = df.copy()
     df["fetched_at"] = datetime.now(timezone.utc).isoformat()
-    df.to_sql("trip_updates", conn, if_exists="append", index=False)
+    df.to_sql("trip_updates", engine, if_exists="append", index=False)
 
 
-def write_vehicle_positions(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
+def write_vehicle_positions(engine: Engine, df: pd.DataFrame) -> None:
     """Append vehicle position rows to the database.
 
     Args:
-        conn: Open SQLite connection.
+        engine: SQLAlchemy engine.
         df: DataFrame from decode_vehicle_positions.
 
     Returns:
@@ -134,14 +137,14 @@ def write_vehicle_positions(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
     """
     df = df.copy()
     df["fetched_at"] = datetime.now(timezone.utc).isoformat()
-    df.to_sql("vehicle_positions", conn, if_exists="append", index=False)
+    df.to_sql("vehicle_positions", engine, if_exists="append", index=False)
 
 
-def read_table(conn: sqlite3.Connection, table: str) -> pd.DataFrame:
+def read_table(engine: Engine, table: str) -> pd.DataFrame:
     """Load a whole table into a DataFrame.
 
     Args:
-        conn: Open SQLite connection.
+        engine: SQLAlchemy engine.
         table: Table name to read.
 
     Returns:
@@ -153,14 +156,45 @@ def read_table(conn: sqlite3.Connection, table: str) -> pd.DataFrame:
     # A table name cannot be passed as a query parameter, so it is checked and quoted instead.
     if not table.isidentifier():
         raise ValueError(f"Invalid table name: {table!r}")
-    return pd.read_sql(f'SELECT * FROM "{table}"', conn)
+    return pd.read_sql(f'SELECT * FROM "{table}"', engine)
 
 
-def write_alerts(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
+def has_table(engine: Engine, table: str) -> bool:
+    """Report whether a table exists in the database.
+
+    Args:
+        engine: SQLAlchemy engine.
+        table: Table name to look for.
+
+    Returns:
+        True if the table exists.
+    """
+    return inspect(engine).has_table(table)
+
+
+def write_dataset(engine: Engine, df: pd.DataFrame) -> None:
+    """Replace the model_dataset table with a freshly built feature table.
+
+    The dataset is derived entirely from the other tables, so it is rebuilt
+    from scratch rather than appended to.
+
+    Args:
+        engine: SQLAlchemy engine.
+        df: Feature table from the processing pipeline.
+
+    Returns:
+        None.
+    """
+    df.to_sql("model_dataset", engine, if_exists="replace", index=False)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_model_dataset_trip ON model_dataset (trip_id, window_start)"))
+
+
+def write_alerts(engine: Engine, df: pd.DataFrame) -> None:
     """Insert or update alert rows, keyed by entity_id and route_id.
 
     Args:
-        conn: Open SQLite connection.
+        engine: SQLAlchemy engine.
         df: DataFrame from decode_alerts.
 
     Returns:
@@ -168,17 +202,25 @@ def write_alerts(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
     """
     fetched_at = datetime.now(timezone.utc).isoformat()
     rows = [
-        (row.entity_id, row.cause, row.effect, row.header_text, row.description_text, row.route_id, fetched_at)
+        {
+            "entity_id": row.entity_id,
+            "cause": row.cause,
+            "effect": row.effect,
+            "header_text": row.header_text,
+            "description_text": row.description_text,
+            "route_id": row.route_id,
+            "fetched_at": fetched_at,
+        }
         for row in df.itertuples()
     ]
-    conn.executemany("""
-        INSERT INTO alerts (entity_id, cause, effect, header_text, description_text, route_id, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(entity_id, route_id) DO UPDATE SET
-            cause=excluded.cause,
-            effect=excluded.effect,
-            header_text=excluded.header_text,
-            description_text=excluded.description_text,
-            fetched_at=excluded.fetched_at
-    """, rows)
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO alerts (entity_id, cause, effect, header_text, description_text, route_id, fetched_at)
+            VALUES (:entity_id, :cause, :effect, :header_text, :description_text, :route_id, :fetched_at)
+            ON CONFLICT(entity_id, route_id) DO UPDATE SET
+                cause=excluded.cause,
+                effect=excluded.effect,
+                header_text=excluded.header_text,
+                description_text=excluded.description_text,
+                fetched_at=excluded.fetched_at
+        """), rows)
