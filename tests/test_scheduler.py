@@ -34,7 +34,12 @@ class RunForeverTest(unittest.TestCase):
     def test_publish_flag_is_passed_through(self):
         with mock.patch("src.orchestration.scheduler.run_once") as run, mock.patch("time.sleep"):
             run_forever(duration_minutes=0, publish=True)
-        run.assert_called_once_with(publish=True)
+        run.assert_called_once_with(publish=True, predict=False)
+
+    def test_predict_flag_is_passed_through(self):
+        with mock.patch("src.orchestration.scheduler.run_once") as run, mock.patch("time.sleep"):
+            run_forever(duration_minutes=0, predict=True)
+        run.assert_called_once_with(publish=False, predict=True)
 
 
 if __name__ == "__main__":
