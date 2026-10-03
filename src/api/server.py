@@ -15,6 +15,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from config.settings import DELAY_MODEL_DIR
+from src.modeling.predict import load_feature_columns, load_model, predict_delay
 from src.storage.db import get_engine
 
 app = FastAPI(
@@ -33,6 +35,22 @@ app.add_middleware(
 )
 
 engine = get_engine()
+
+# Loaded on first use and kept, so each request does not re-read the
+# (for random forests, ~80 MB) model files from disk.
+_models = {}
+
+
+def _get_model(horizon: int):
+    if horizon not in _models:
+        _models[horizon] = load_model(horizon, DELAY_MODEL_DIR)
+    return _models[horizon]
+
+
+def _model_name(model) -> str:
+    return {"HistGradientBoostingRegressor": "hist_gradient_boosting", "RandomForestRegressor": "random_forest"}.get(
+        type(model).__name__, type(model).__name__
+    )
 
 
 @app.get("/api/health")
@@ -122,7 +140,7 @@ def get_vehicle_positions(route_id: Optional[str] = None):
                 timestamp,
                 fetched_at
             FROM vehicle_positions
-            WHERE route_id = '{route_id}'
+            WHERE route_id = :route_id
             ORDER BY vehicle_id, fetched_at DESC
             """
         else:
@@ -147,7 +165,7 @@ def get_vehicle_positions(route_id: Optional[str] = None):
             """
         
         with engine.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(text(query), {"route_id": route_id} if route_id else {})
             rows = result.fetchall()
         
         vehicles = []
@@ -157,10 +175,10 @@ def get_vehicle_positions(route_id: Optional[str] = None):
                 "vehicle_label": row[1],
                 "trip_id": row[2],
                 "route_id": row[3],
-                "latitude": float(row[4]) if row[4] else None,
-                "longitude": float(row[5]) if row[5] else None,
-                "bearing": float(row[6]) if row[6] else None,
-                "speed": float(row[7]) if row[7] else None,
+                "latitude": float(row[4]) if row[4] is not None else None,
+                "longitude": float(row[5]) if row[5] is not None else None,
+                "bearing": float(row[6]) if row[6] is not None else None,
+                "speed": float(row[7]) if row[7] is not None else None,
                 "stop_sequence": row[8],
                 "status": row[9],  # IN_TRANSIT, STOPPED_AT, INCOMING_AT
                 "occupancy": row[10],
@@ -179,75 +197,68 @@ def get_vehicle_positions(route_id: Optional[str] = None):
 
 @app.get("/api/delays")
 def get_predicted_delays(route_id: Optional[str] = None, horizon_minutes: int = 5):
-    """Get latest delay predictions.
-    
+    """Get the latest delay predictions from the trained model.
+
+    Scores the newest model_dataset rows with the model in DELAY_MODEL_DIR
+    (see config/settings.py). actual_delay_minutes is the delay that was
+    later observed at that horizon, or null when it is still in the future,
+    so predictions can be checked against it.
+
     Args:
         route_id: Optional filter by route
         horizon_minutes: Prediction horizon (5, 10, or 15)
-    
+
     Returns:
         Latest predicted delays per trip with current status.
     """
     try:
         if horizon_minutes not in (5, 10, 15):
             horizon_minutes = 5
-        
-        target_col = f"target_delay_{horizon_minutes}min"
-        
-        if route_id:
-            query = f"""
-            SELECT
-                trip_id,
-                route_id,
-                window_start,
-                arrival_delay as current_delay,
-                {target_col} as predicted_delay,
-                stop_id,
-                stop_sequence
-            FROM model_dataset
-            WHERE route_id = '{route_id}'
-              AND {target_col} IS NOT NULL
-            ORDER BY window_start DESC
-            LIMIT 50
-            """
-        else:
-            query = f"""
-            SELECT
-                trip_id,
-                route_id,
-                window_start,
-                arrival_delay as current_delay,
-                {target_col} as predicted_delay,
-                stop_id,
-                stop_sequence
-            FROM model_dataset
-            WHERE {target_col} IS NOT NULL
-            ORDER BY window_start DESC
-            LIMIT 100
-            """
-        
-        with engine.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-        
+
+        try:
+            model = _get_model(horizon_minutes)
+            feature_columns = load_feature_columns(DELAY_MODEL_DIR)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+        where = "WHERE route_id = :route_id" if route_id else ""
+        query = f"""
+        SELECT *
+        FROM model_dataset
+        {where}
+        ORDER BY window_start DESC
+        LIMIT {50 if route_id else 100}
+        """
+        rows = pd.read_sql(text(query), engine, params={"route_id": route_id} if route_id else {})
+        predicted = predict_delay(model, rows, feature_columns) if not rows.empty else pd.Series(dtype=float)
+
+        # model_dataset stores delays in seconds; the API (and the Android
+        # app) report minutes.
+        def minutes(seconds):
+            return None if pd.isna(seconds) else round(float(seconds) / 60, 2)
+
         delays = []
-        for row in rows:
+        for i, row in rows.iterrows():
             delays.append({
-                "trip_id": row[0],
-                "route_id": row[1],
-                "window_start": row[2].isoformat() if row[2] else None,
-                "current_delay_minutes": float(row[3]) if row[3] else None,
-                "predicted_delay_minutes": float(row[4]) if row[4] else None,
-                "stop_id": row[5],
-                "stop_sequence": row[6]
+                "trip_id": row["trip_id"],
+                "route_id": row["route_id"],
+                "window_start": pd.Timestamp(row["window_start"]).isoformat() if pd.notna(row["window_start"]) else None,
+                "current_delay_minutes": minutes(row["arrival_delay"]),
+                "predicted_delay_minutes": minutes(predicted[i]),
+                "actual_delay_minutes": minutes(row[f"target_delay_{horizon_minutes}min"]),
+                "stop_id": row["stop_id"],
+                "stop_sequence": None if pd.isna(row["stop_sequence"]) else int(row["stop_sequence"]),
             })
-        
+
         return {
             "horizon_minutes": horizon_minutes,
+            "model": _model_name(model),
             "delays": delays,
             "count": len(delays),
             "timestamp": datetime.now().isoformat()
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -314,13 +325,13 @@ def get_trip_details(trip_id: str):
             target_delay_10min,
             target_delay_15min
         FROM model_dataset
-        WHERE trip_id = '{trip_id}'
+        WHERE trip_id = :trip_id
         ORDER BY window_start DESC
         LIMIT 1
         """
         
         with engine.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(text(query), {"trip_id": trip_id})
             row = result.fetchone()
         
         if not row:
@@ -332,17 +343,19 @@ def get_trip_details(trip_id: str):
             "destination": row[2],
             "service_date": row[3],
             "observed_time": row[4].isoformat() if row[4] else None,
-            "current_delay_minutes": float(row[5]) if row[5] else None,
+            "current_delay_minutes": round(float(row[5]) / 60, 2) if row[5] is not None else None,
             "current_stop_id": row[6],
             "current_stop_name": row[7],
             "stop_sequence": row[8],
             "predicted_delays": {
-                "5_minutes": float(row[9]) if row[9] else None,
-                "10_minutes": float(row[10]) if row[10] else None,
-                "15_minutes": float(row[11]) if row[11] else None
+                "5_minutes": round(float(row[9]) / 60, 2) if row[9] is not None else None,
+                "10_minutes": round(float(row[10]) / 60, 2) if row[10] is not None else None,
+                "15_minutes": round(float(row[11]) / 60, 2) if row[11] is not None else None
             },
             "timestamp": datetime.now().isoformat()
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

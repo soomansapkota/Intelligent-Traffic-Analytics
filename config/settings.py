@@ -39,6 +39,11 @@ KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9
 KAFKA_TOPIC_PREFIX = os.environ.get("KAFKA_TOPIC_PREFIX", "metro")
 KAFKA_GROUP_ID = os.environ.get("KAFKA_GROUP_ID", "traffic-analytics")
 
+# Trained delay models the API serves predictions from: a --out-dir that
+# src.modeling.train saved into. Switch to models/ for the
+# HistGradientBoosting models (retrain first if a directory is empty).
+DELAY_MODEL_DIR = PROJECT_ROOT / os.environ.get("DELAY_MODEL_DIR", "models/random_forest")
+
 # Retry behaviour for feed requests: up to MAX_RETRIES attempts, sleeping
 # RETRY_BACKOFF_SECONDS * 2**attempt between them.
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", 3))
