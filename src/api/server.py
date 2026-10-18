@@ -16,8 +16,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from config.settings import DELAY_MODEL_DIR
-from src.modeling.predict import load_feature_columns, load_model, predict_delay
 from src.storage.db import get_engine
 
 app = FastAPI(
@@ -36,17 +34,6 @@ app.add_middleware(
 )
 
 engine = get_engine()
-
-# Loaded on first use and kept, so each request does not re-read the
-# (for random forests, ~80 MB) model files from disk.
-_models = {}
-
-
-def _get_model(horizon: int):
-    if horizon not in _models:
-        _models[horizon] = load_model(horizon, DELAY_MODEL_DIR)
-    return _models[horizon]
-
 
 _stations = None
 
@@ -82,12 +69,6 @@ def _nearest_station(lat: Optional[float], lon: Optional[float]) -> tuple[Option
 
     name, distance = min(((n, metres(s_lat, s_lon)) for n, s_lat, s_lon in stations), key=lambda t: t[1])
     return name, round(distance)
-
-
-def _model_name(model) -> str:
-    return {"HistGradientBoostingRegressor": "hist_gradient_boosting", "RandomForestRegressor": "random_forest"}.get(
-        type(model).__name__, type(model).__name__
-    )
 
 
 @app.get("/api/health")
@@ -177,7 +158,7 @@ def get_vehicle_positions(route_id: Optional[str] = None):
                 timestamp,
                 fetched_at
             FROM vehicle_positions
-            WHERE route_id = :route_id
+            WHERE route_id = '{route_id}'
             ORDER BY vehicle_id, fetched_at DESC
             """
         else:
@@ -202,7 +183,7 @@ def get_vehicle_positions(route_id: Optional[str] = None):
             """
         
         with engine.connect() as conn:
-            result = conn.execute(text(query), {"route_id": route_id} if route_id else {})
+            result = conn.execute(text(query))
             rows = result.fetchall()
         
         vehicles = []
@@ -239,17 +220,12 @@ def get_vehicle_positions(route_id: Optional[str] = None):
 
 @app.get("/api/delays")
 def get_predicted_delays(route_id: Optional[str] = None, horizon_minutes: int = 5):
-    """Get the latest delay predictions from the trained model.
-
-    Scores the newest model_dataset rows with the model in DELAY_MODEL_DIR
-    (see config/settings.py). actual_delay_minutes is the delay that was
-    later observed at that horizon, or null when it is still in the future,
-    so predictions can be checked against it.
-
+    """Get latest delay predictions.
+    
     Args:
         route_id: Optional filter by route
         horizon_minutes: Prediction horizon (5, 10, or 15)
-
+    
     Returns:
         Latest predicted delays per trip with current status.
     """
@@ -257,57 +233,51 @@ def get_predicted_delays(route_id: Optional[str] = None, horizon_minutes: int = 
         if horizon_minutes not in (5, 10, 15):
             horizon_minutes = 5
 
-        try:
-            model = _get_model(horizon_minutes)
-            feature_columns = load_feature_columns(DELAY_MODEL_DIR)
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=503, detail=str(e))
-
-        where = "WHERE route_id = :route_id" if route_id else ""
+        prediction_col = f"predicted_delay_{horizon_minutes}min"
         query = f"""
-        SELECT *
-        FROM model_dataset
-        {where}
+        SELECT
+            trip_id,
+            route_id,
+            window_start,
+            arrival_delay as current_delay,
+            {prediction_col} as predicted_delay,
+            stop_id,
+            stop_sequence,
+            predicted_at,
+            stop_name,
+            trip_headsign
+        FROM predictions
+        WHERE (:route_id IS NULL OR route_id = :route_id)
         ORDER BY window_start DESC
-        LIMIT {50 if route_id else 100}
         """
-        rows = pd.read_sql(text(query), engine, params={"route_id": route_id} if route_id else {})
-        predicted = predict_delay(model, rows, feature_columns) if not rows.empty else pd.Series(dtype=float)
 
-        # model_dataset stores delays in seconds; the API (and the Android
-        # app) report minutes.
-        def minutes(seconds):
-            return None if pd.isna(seconds) else round(float(seconds) / 60, 2)
+        with engine.connect() as conn:
+            rows = conn.execute(text(query), {"route_id": route_id}).fetchall()
 
-        # Station and destination come from the static timetable join, so
-        # they are missing for the few trips that did not match it.
-        def text_or_none(value):
-            return None if value is None or pd.isna(value) else str(value)
-
+        to_minutes = lambda secs: round(float(secs) / 60, 2) if secs is not None else None
         delays = []
-        for i, row in rows.iterrows():
+        for row in rows:
             delays.append({
-                "trip_id": row["trip_id"],
-                "route_id": row["route_id"],
-                "window_start": pd.Timestamp(row["window_start"]).isoformat() if pd.notna(row["window_start"]) else None,
-                "current_delay_minutes": minutes(row["arrival_delay"]),
-                "predicted_delay_minutes": minutes(predicted[i]),
-                "actual_delay_minutes": minutes(row[f"target_delay_{horizon_minutes}min"]),
-                "stop_id": row["stop_id"],
-                "stop_name": text_or_none(row.get("stop_name")),
-                "destination": text_or_none(row.get("trip_headsign")),
-                "stop_sequence": None if pd.isna(row["stop_sequence"]) else int(row["stop_sequence"]),
+                "trip_id": row[0],
+                "route_id": row[1],
+                "window_start": row[2].isoformat() if row[2] else None,
+                "current_delay_minutes": to_minutes(row[3]),
+                "predicted_delay_minutes": to_minutes(row[4]),
+                "stop_id": row[5],
+                "stop_sequence": row[6],
+                # Station and destination come from the static timetable join, so
+                # they are missing for the few trips that did not match it.
+                "stop_name": row[8],
+                "destination": row[9],
             })
 
         return {
             "horizon_minutes": horizon_minutes,
-            "model": _model_name(model),
             "delays": delays,
             "count": len(delays),
+            "predicted_at": rows[0][7].isoformat() if rows else None,
             "timestamp": datetime.now().isoformat()
         }
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -359,7 +329,7 @@ def get_trip_details(trip_id: str):
         Trip details including all stops, predicted delays at each horizon.
     """
     try:
-        query = f"""
+        query = """
         SELECT
             trip_id,
             route_id,
@@ -370,43 +340,39 @@ def get_trip_details(trip_id: str):
             stop_id,
             stop_name,
             stop_sequence,
-            target_delay_5min,
-            target_delay_10min,
-            target_delay_15min
-        FROM model_dataset
+            predicted_delay_5min,
+            predicted_delay_10min,
+            predicted_delay_15min
+        FROM predictions
         WHERE trip_id = :trip_id
-        ORDER BY window_start DESC
-        LIMIT 1
         """
-        
+
         with engine.connect() as conn:
-            result = conn.execute(text(query), {"trip_id": trip_id})
-            row = result.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Trip not found")
-        
-        return {
-            "trip_id": row[0],
-            "route_id": row[1],
-            "destination": row[2],
-            "service_date": row[3],
-            "observed_time": row[4].isoformat() if row[4] else None,
-            "current_delay_minutes": round(float(row[5]) / 60, 2) if row[5] is not None else None,
-            "current_stop_id": row[6],
-            "current_stop_name": row[7],
-            "stop_sequence": row[8],
-            "predicted_delays": {
-                "5_minutes": round(float(row[9]) / 60, 2) if row[9] is not None else None,
-                "10_minutes": round(float(row[10]) / 60, 2) if row[10] is not None else None,
-                "15_minutes": round(float(row[11]) / 60, 2) if row[11] is not None else None
-            },
-            "timestamp": datetime.now().isoformat()
-        }
-    except HTTPException:
-        raise
+            row = conn.execute(text(query), {"trip_id": trip_id}).fetchone()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Trip not found among the trains running now")
+
+    to_minutes = lambda secs: round(float(secs) / 60, 2) if secs is not None else None
+    return {
+        "trip_id": row[0],
+        "route_id": row[1],
+        "destination": row[2],
+        "service_date": row[3],
+        "observed_time": row[4].isoformat() if row[4] else None,
+        "current_delay_minutes": to_minutes(row[5]),
+        "current_stop_id": row[6],
+        "current_stop_name": row[7],
+        "stop_sequence": row[8],
+        "predicted_delays": {
+            "5_minutes": to_minutes(row[9]),
+            "10_minutes": to_minutes(row[10]),
+            "15_minutes": to_minutes(row[11])
+        },
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.on_event("shutdown")

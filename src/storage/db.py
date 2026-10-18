@@ -85,6 +85,8 @@ def init_db(engine: Engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_vehicle ON vehicle_positions (vehicle_id, fetched_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_route ON vehicle_positions (route_id, fetched_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_route ON alerts (route_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_trip_updates_fetched ON trip_updates (fetched_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_vehicle_positions_fetched ON vehicle_positions (fetched_at)"))
 
 
 def write_static_gtfs(engine: Engine, tables: dict[str, pd.DataFrame]) -> None:
@@ -157,6 +159,47 @@ def read_table(engine: Engine, table: str) -> pd.DataFrame:
     if not table.isidentifier():
         raise ValueError(f"Invalid table name: {table!r}")
     return pd.read_sql(f'SELECT * FROM "{table}"', engine)
+
+
+def read_recent(engine: Engine, table: str, since: datetime) -> pd.DataFrame:
+    """Load only the rows fetched at or after a given time.
+
+    fetched_at is stored as an ISO 8601 UTC string, so comparing it as text
+    gives the same order as comparing the times themselves.
+
+    Args:
+        engine: SQLAlchemy engine.
+        table: Table name to read, one with a fetched_at column.
+        since: Earliest fetched_at to include, timezone-aware.
+
+    Returns:
+        DataFrame holding the matching rows.
+
+    Raises:
+        ValueError: If the table name is not a plain identifier.
+    """
+    if not table.isidentifier():
+        raise ValueError(f"Invalid table name: {table!r}")
+    cutoff = since.astimezone(timezone.utc).isoformat()
+    return pd.read_sql(text(f'SELECT * FROM "{table}" WHERE fetched_at >= :cutoff'), engine, params={"cutoff": cutoff})
+
+
+def write_predictions(engine: Engine, df: pd.DataFrame) -> None:
+    """Replace the predictions table with the latest live predictions.
+
+    Only the newest prediction per train is useful to the API, so each cycle
+    overwrites the predictions table. The same rows are also appended to
+    prediction_log, which keeps the history for checking accuracy later.
+
+    Args:
+        engine: SQLAlchemy engine.
+        df: One row per train, from pipeline.predict_live.
+
+    Returns:
+        None.
+    """
+    df.to_sql("predictions", engine, if_exists="replace", index=False)
+    df.to_sql("prediction_log", engine, if_exists="append", index=False)
 
 
 def has_table(engine: Engine, table: str) -> bool:

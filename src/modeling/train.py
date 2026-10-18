@@ -30,6 +30,7 @@ from sklearn.base import RegressorMixin
 from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from src.modeling.change import PredictChange
 from src.processing.targets import DEFAULT_HORIZONS_MINUTES
 from src.storage.db import get_engine, read_table
 
@@ -43,7 +44,7 @@ ID_COLUMNS = {
     "static_trip_id", "match_method", "trip_headsign", "stop_name", "service_id",
 }
 
-# Model types --model can pick from. Both handle NaN features natively
+# Model types --model can pick from. All of them handle NaN features natively
 # (random forests since scikit-learn 1.4), so build_xy needs no imputation
 # whichever is chosen. The forest is capped in depth and leaf size so it
 # trains in minutes on a full model_dataset rather than growing every tree
@@ -53,8 +54,9 @@ MODELS = {
     "random_forest": lambda: RandomForestRegressor(
         n_estimators=100, max_depth=20, min_samples_leaf=5, n_jobs=-1, random_state=42
     ),
+    "hgb_change_abs": lambda: PredictChange(HistGradientBoostingRegressor(loss="absolute_error", random_state=42)),
 }
-DEFAULT_MODEL = "hist_gradient_boosting"
+DEFAULT_MODEL = "hgb_change_abs"
 
 
 def select_feature_columns(df: pd.DataFrame) -> list[str]:
