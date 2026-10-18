@@ -44,6 +44,7 @@ public class DelayAdapter extends RecyclerView.Adapter<DelayAdapter.DelayViewHol
     public static class DelayViewHolder extends RecyclerView.ViewHolder {
         private TextView tripIdTextView;
         private TextView routeIdTextView;
+        private TextView locationTextView;
         private TextView currentDelayTextView;
         private TextView predictedDelayTextView;
         private TextView statusTextView;
@@ -52,6 +53,7 @@ public class DelayAdapter extends RecyclerView.Adapter<DelayAdapter.DelayViewHol
             super(itemView);
             tripIdTextView = itemView.findViewById(R.id.textViewTripId);
             routeIdTextView = itemView.findViewById(R.id.textViewRouteId);
+            locationTextView = itemView.findViewById(R.id.textViewLocation);
             currentDelayTextView = itemView.findViewById(R.id.textViewCurrentDelay);
             predictedDelayTextView = itemView.findViewById(R.id.textViewPredictedDelay);
             statusTextView = itemView.findViewById(R.id.textViewStatus);
@@ -60,16 +62,13 @@ public class DelayAdapter extends RecyclerView.Adapter<DelayAdapter.DelayViewHol
         public void bind(Delay delay) {
             tripIdTextView.setText("Trip: " + delay.tripId);
             routeIdTextView.setText("Route: " + delay.routeId);
+
+            String location = delay.getLocationText();
+            locationTextView.setVisibility(location != null ? View.VISIBLE : View.GONE);
+            locationTextView.setText(location);
             
-            String currentDelay = delay.currentDelayMinutes != null 
-                    ? String.format("Current: %+.1f min", delay.currentDelayMinutes)
-                    : "Current: N/A";
-            currentDelayTextView.setText(currentDelay);
-            
-            String predictedDelay = delay.predictedDelayMinutes != null
-                    ? String.format("Predicted: %+.1f min", delay.predictedDelayMinutes)
-                    : "Predicted: N/A";
-            predictedDelayTextView.setText(predictedDelay);
+            currentDelayTextView.setText("Current: " + Delay.formatDelay(delay.currentDelayMinutes));
+            predictedDelayTextView.setText("Predicted: " + Delay.formatDelay(delay.predictedDelayMinutes));
             
             statusTextView.setText(delay.getDelayStatus());
         }

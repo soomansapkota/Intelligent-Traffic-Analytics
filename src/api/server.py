@@ -7,6 +7,7 @@ Endpoints:
 - /api/routes - Sydney Metro route information
 """
 
+import math
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -45,6 +46,42 @@ def _get_model(horizon: int):
     if horizon not in _models:
         _models[horizon] = load_model(horizon, DELAY_MODEL_DIR)
     return _models[horizon]
+
+
+_stations = None
+
+
+def _get_stations() -> list[tuple[str, float, float]]:
+    """Metro stations as (name, lat, lon), one per station rather than per platform.
+
+    Loaded once from the static stops table: "Chatswood Station, Platform 2"
+    and "..., Platform 3" collapse into "Chatswood Station" at their mean
+    position. Empty until `--refresh-static` has been run.
+    """
+    global _stations
+    if _stations is None:
+        stops = pd.read_sql(text("SELECT stop_name, stop_lat, stop_lon FROM stops"), engine)
+        stops["station"] = stops["stop_name"].str.split(",").str[0].str.strip()
+        stops[["stop_lat", "stop_lon"]] = stops[["stop_lat", "stop_lon"]].astype(float)
+        grouped = stops.groupby("station")[["stop_lat", "stop_lon"]].mean()
+        _stations = [(name, row.stop_lat, row.stop_lon) for name, row in grouped.iterrows()]
+    return _stations
+
+
+def _nearest_station(lat: Optional[float], lon: Optional[float]) -> tuple[Optional[str], Optional[int]]:
+    """Name of the closest station to a GPS point and its distance in metres."""
+    stations = _get_stations()
+    if lat is None or lon is None or not stations:
+        return None, None
+
+    def metres(s_lat, s_lon):
+        # Haversine; plenty accurate over the few km between Metro stations.
+        p1, p2 = math.radians(lat), math.radians(s_lat)
+        a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(s_lon - lon) / 2) ** 2
+        return 6_371_000 * 2 * math.asin(math.sqrt(a))
+
+    name, distance = min(((n, metres(s_lat, s_lon)) for n, s_lat, s_lon in stations), key=lambda t: t[1])
+    return name, round(distance)
 
 
 def _model_name(model) -> str:
@@ -170,13 +207,18 @@ def get_vehicle_positions(route_id: Optional[str] = None):
         
         vehicles = []
         for row in rows:
+            lat = float(row[4]) if row[4] is not None else None
+            lon = float(row[5]) if row[5] is not None else None
+            station, distance_m = _nearest_station(lat, lon)
             vehicles.append({
                 "vehicle_id": row[0],
                 "vehicle_label": row[1],
                 "trip_id": row[2],
                 "route_id": row[3],
-                "latitude": float(row[4]) if row[4] is not None else None,
-                "longitude": float(row[5]) if row[5] is not None else None,
+                "latitude": lat,
+                "longitude": lon,
+                "nearest_station": station,
+                "station_distance_m": distance_m,
                 "bearing": float(row[6]) if row[6] is not None else None,
                 "speed": float(row[7]) if row[7] is not None else None,
                 "stop_sequence": row[8],
@@ -237,6 +279,11 @@ def get_predicted_delays(route_id: Optional[str] = None, horizon_minutes: int = 
         def minutes(seconds):
             return None if pd.isna(seconds) else round(float(seconds) / 60, 2)
 
+        # Station and destination come from the static timetable join, so
+        # they are missing for the few trips that did not match it.
+        def text_or_none(value):
+            return None if value is None or pd.isna(value) else str(value)
+
         delays = []
         for i, row in rows.iterrows():
             delays.append({
@@ -247,6 +294,8 @@ def get_predicted_delays(route_id: Optional[str] = None, horizon_minutes: int = 
                 "predicted_delay_minutes": minutes(predicted[i]),
                 "actual_delay_minutes": minutes(row[f"target_delay_{horizon_minutes}min"]),
                 "stop_id": row["stop_id"],
+                "stop_name": text_or_none(row.get("stop_name")),
+                "destination": text_or_none(row.get("trip_headsign")),
                 "stop_sequence": None if pd.isna(row["stop_sequence"]) else int(row["stop_sequence"]),
             })
 

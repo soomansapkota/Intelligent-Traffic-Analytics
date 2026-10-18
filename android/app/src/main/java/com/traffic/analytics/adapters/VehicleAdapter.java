@@ -61,13 +61,15 @@ public class VehicleAdapter extends RecyclerView.Adapter<VehicleAdapter.VehicleV
             vehicleLabelTextView.setText(vehicle.vehicleLabel != null ? vehicle.vehicleLabel : vehicle.vehicleId);
             routeIdTextView.setText("Route: " + vehicle.routeId);
             
-            String location = vehicle.latitude != null && vehicle.longitude != null
+            String gps = vehicle.latitude != null && vehicle.longitude != null
                     ? String.format("GPS: %.4f, %.4f", vehicle.latitude, vehicle.longitude)
                     : "GPS: Unknown";
-            locationTextView.setText(location);
+            String place = vehicle.getPlaceText();
+            locationTextView.setText(place != null ? place + "\n" + gps : gps);
             
-            String speed = vehicle.speed != null
-                    ? String.format("Speed: %.1f km/h", vehicle.speed)
+            Double speedKmh = vehicle.getSpeedKmh();
+            String speed = speedKmh != null
+                    ? String.format("Speed: %.0f km/h", speedKmh)
                     : "Speed: N/A";
             speedTextView.setText(speed);
             
