@@ -44,6 +44,12 @@
             android:exported="false"
             android:label="Live Vehicles" />
 
+        <!-- Journey Planner Activity -->
+        <activity
+            android:name=".ui.JourneyActivity"
+            android:exported="false"
+            android:label="Plan a Journey" />
+
     </application>
 
 </manifest>

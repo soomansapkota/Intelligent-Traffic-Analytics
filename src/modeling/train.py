@@ -29,8 +29,9 @@ import pandas as pd
 from sklearn.base import RegressorMixin
 from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from xgboost import XGBRegressor
 
-from src.modeling.change import PredictChange
+from src.modeling.change import AsFloat, PredictChange
 from src.processing.targets import DEFAULT_HORIZONS_MINUTES
 from src.storage.db import get_engine, read_table
 
@@ -55,8 +56,22 @@ MODELS = {
         n_estimators=100, max_depth=20, min_samples_leaf=5, n_jobs=-1, random_state=42
     ),
     "hgb_change_abs": lambda: PredictChange(HistGradientBoostingRegressor(loss="absolute_error", random_state=42)),
+    # Slower learning with bigger, better-populated leaves: the settings
+    # scripts/compare_more_models.py's per-fold tuning picked most often.
+    # As one fixed setting on the notebook's time folds they cut MAE to
+    # 5.49 / 8.73 / 10.80 s (from 5.71 / 8.91 / 11.35) at 5 / 10 / 15 min.
+    "hgb_change_abs_tuned": lambda: PredictChange(HistGradientBoostingRegressor(
+        loss="absolute_error", learning_rate=0.05, max_iter=400, max_leaf_nodes=63,
+        min_samples_leaf=200, random_state=42,
+    )),
+    # Same change target and absolute-error loss; scored 5.96 / 9.71 / 12.04 s
+    # on the notebook's time folds, behind both HGB variants above.
+    "xgboost_change_abs": lambda: PredictChange(AsFloat(XGBRegressor(
+        objective="reg:absoluteerror", n_estimators=300, learning_rate=0.1, max_depth=6,
+        tree_method="hist", n_jobs=-1, random_state=42,
+    ))),
 }
-DEFAULT_MODEL = "hgb_change_abs"
+DEFAULT_MODEL = "hgb_change_abs_tuned"
 
 
 def select_feature_columns(df: pd.DataFrame) -> list[str]:

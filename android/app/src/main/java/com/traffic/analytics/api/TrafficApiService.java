@@ -39,6 +39,16 @@ public interface TrafficApiService {
     @GET("/api/routes")
     Call<ApiResponse.RoutesResponse> getRoutes();
 
+    @GET("/api/stations")
+    Call<ApiResponse.StationsResponse> getStations();
+
+    @GET("/api/journey")
+    Call<ApiResponse.JourneyResponse> getJourney(
+            @Query("from") String fromStation,
+            @Query("to") String toStation,
+            @Query("limit") int limit
+    );
+
     @GET("/api/trip/{trip_id}")
     Call<ApiResponse.TripDetailResponse> getTripDetails(
             @Path("trip_id") String tripId
