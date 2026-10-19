@@ -1,8 +1,11 @@
-"""Model wrapper that predicts the change in delay rather than the delay itself.
+"""Model wrappers saved inside the trained models.
 
-Kept in its own module so saved models always point at
-src.modeling.change.PredictChange. If it lived in train.py, running
-`python -m src.modeling.train` would save it as __main__.PredictChange,
+PredictChange predicts the change in delay rather than the delay itself;
+AsFloat feeds XGBoost the plain float input it requires.
+
+Kept in their own module so saved models always point at
+src.modeling.change. If they lived in train.py, running
+`python -m src.modeling.train` would save them as __main__.PredictChange,
 which predict.py and the API could not load back.
 """
 
@@ -30,3 +33,25 @@ class PredictChange:
 
     def predict(self, X: pd.DataFrame):
         return X["arrival_delay"].to_numpy() + self.model.predict(X)
+
+
+class AsFloat:
+    """Cast the feature frame to float before handing it to the wrapped model.
+
+    XGBoost rejects the pandas nullable and object dtypes that scikit-learn
+    accepts as they come out of model_dataset; NaN survives the cast, and
+    XGBoost handles it natively.
+
+    Args:
+        model: Any regressor with fit/predict.
+    """
+
+    def __init__(self, model: RegressorMixin):
+        self.model = model
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> "AsFloat":
+        self.model.fit(X.astype(float), y)
+        return self
+
+    def predict(self, X: pd.DataFrame):
+        return self.model.predict(X.astype(float))

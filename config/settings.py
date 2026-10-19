@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -6,6 +7,14 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 load_dotenv(PROJECT_ROOT / ".env")
+
+# joblib (used by scikit-learn) counts physical cores by shelling out to
+# `wmic`, which Windows 11 no longer ships, and prints a traceback every run
+# when that fails. It skips the lookup when LOKY_MAX_CPU_COUNT is below the
+# logical core count, so give it the usual physical count (half, with
+# hyperthreading) up front.
+if sys.platform == "win32":
+    os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(max(1, (os.cpu_count() or 2) // 2)))
 
 # Absent rather than required, so the tests and the dataset build run without credentials. Fetching checks for it.
 API_KEY = os.environ.get("TFNSW_API_KEY", "")

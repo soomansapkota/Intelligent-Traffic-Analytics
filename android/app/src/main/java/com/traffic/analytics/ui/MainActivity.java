@@ -52,6 +52,9 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(MainActivity.this, DelayPredictionActivity.class)));
         buttonVehicles.setOnClickListener(v ->
                 startActivity(new Intent(MainActivity.this, VehicleTrackingActivity.class)));
+        Button buttonJourney = findViewById(R.id.buttonJourney);
+        buttonJourney.setOnClickListener(v ->
+                startActivity(new Intent(MainActivity.this, JourneyActivity.class)));
 
         // Swipe to refresh
         swipeRefresh.setOnRefreshListener(() -> {

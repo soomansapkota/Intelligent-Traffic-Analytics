@@ -98,6 +98,22 @@
             android:insetBottom="0dp" />
     </LinearLayout>
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonJourney"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginBottom="16dp"
+        android:text="Plan a journey  ·  From → To"
+        android:textAllCaps="false"
+        android:textColor="#24433C"
+        android:textSize="13sp"
+        app:backgroundTint="#FFFFFF"
+        app:cornerRadius="8dp"
+        app:strokeColor="#D6E2DD"
+        app:strokeWidth="1dp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp" />
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"

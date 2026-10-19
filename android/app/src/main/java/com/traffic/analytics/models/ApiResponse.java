@@ -39,6 +39,20 @@ public class ApiResponse {
         public String timestamp;
     }
 
+    public static class StationsResponse {
+        public List<String> stations;
+        public int count;
+        public String timestamp;
+    }
+
+    public static class JourneyResponse {
+        public String from;
+        public String to;
+        public List<Departure> departures;
+        public int count;
+        public String timestamp;
+    }
+
     public static class TripDetailResponse {
         @SerializedName("trip_id")
         public String tripId;
